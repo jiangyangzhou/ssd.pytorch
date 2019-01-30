@@ -23,7 +23,7 @@ def center_size(boxes):
         boxes: (tensor) Converted xmin, ymin, xmax, ymax form of boxes.
     """
     return torch.cat((boxes[:, 2:] + boxes[:, :2])/2,  # cx, cy
-                     boxes[:, 2:] - boxes[:, :2], 1)  # w, h
+                     boxes[:, 2:] - boxes[:, :2], 1)  # w, h       #torch.cat 横者拼接
 
 
 def intersect(box_a, box_b):
@@ -54,7 +54,7 @@ def jaccard(box_a, box_b):
     E.g.:
         A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
     Args:
-        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
+        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4] forms:[xmin,ymin,xmax,ymax]
         box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
     Return:
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
@@ -86,24 +86,25 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
         The matched indices corresponding to 1)location and 2)confidence preds.
     """
     # jaccard index
-    overlaps = jaccard(
+    overlaps = jaccard(    #[A,B] truth:[A,4]  priors:[B,4]
         truths,
         point_form(priors)
     )
     # (Bipartite Matching)
     # [1,num_objects] best prior for each ground truth
-    best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)
+    best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)    #shape:[A]
     # [1,num_priors] best ground truth for each prior
-    best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
+    best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)  #shape:[B]
     best_truth_idx.squeeze_(0)
     best_truth_overlap.squeeze_(0)
-    best_prior_idx.squeeze_(1)
+    best_prior_idx.squeeze_(1) 
     best_prior_overlap.squeeze_(1)
-    best_truth_overlap.index_fill_(0, best_prior_idx, 2)  # ensure best prior
+    best_truth_overlap.index_fill_(0, best_prior_idx, 2)  #(dim,index,val)
+    # ensure best prior
     # TODO refactor: index  best_prior_idx with long tensor
     # ensure every gt matches with its prior of max overlap
     for j in range(best_prior_idx.size(0)):
-        best_truth_idx[best_prior_idx[j]] = j
+        best_truth_idx[best_prior_idx[j]] = j      #for No j truth's best prior box, set its best match truth to j
     matches = truths[best_truth_idx]          # Shape: [num_priors,4]
     conf = labels[best_truth_idx] + 1         # Shape: [num_priors]
     conf[best_truth_overlap < threshold] = 0  # label as background
@@ -126,14 +127,21 @@ def encode(matched, priors, variances):
     """
 
     # dist b/t match center and prior's center
-    g_cxcy = (matched[:, :2] + matched[:, 2:])/2 - priors[:, :2]
+    g_cxcy = (matched[:, :2] + matched[:, 2:4])/2 - priors[:, :2]
     # encode variance
-    g_cxcy /= (variances[0] * priors[:, 2:])
+    g_cxcy /= (variances[0] * priors[:, 2:4])
     # match wh / prior wh
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
+    g_wh = (matched[:, 2:4] - matched[:, :2]) / priors[:, 2:4]
     g_wh = torch.log(g_wh) / variances[1]
+
+    g_cxcy2 = (matched[:, 4:6] + matched[:, 6:])/2 - priors[:, 4:6]
+    # encode variance
+    g_cxcy2 /= (variances[0] * priors[:, 4:6])
+    # match wh / prior wh
+    g_wh2 = (matched[:, 6:] - matched[:, 4:6]) / priors[:, 6:]
+    g_wh2 = torch.log(g_wh2) / variances[1]
     # return target for smooth_l1_loss
-    return torch.cat([g_cxcy, g_wh], 1)  # [num_priors,4]
+    return torch.cat([g_cxcy, g_wh, g_cxcy2, g_wh2], 1)  # [num_priors,4]
 
 
 # Adapted from https://github.com/Hakuyume/chainer-ssd
@@ -151,10 +159,14 @@ def decode(loc, priors, variances):
     """
 
     boxes = torch.cat((
-        priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:],
-        priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
-    boxes[:, :2] -= boxes[:, 2:] / 2
-    boxes[:, 2:] += boxes[:, :2]
+        priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:4],
+        priors[:, 2:4] * torch.exp(loc[:, 2:4] * variances[1]),
+        priors[:, 4:6] + loc[:, 4:6] * variances[0] * priors[:, 6:],
+        priors[:, 6:] * torch.exp(loc[:, 6:] * variances[1])),   1)
+    boxes[:, :2] -= boxes[:, 2:4] / 2
+    boxes[:, 2:4] += boxes[:, :2]
+    boxes[:, 4:6] -= boxes[:, 6:] / 2
+    boxes[:, 6:] += boxes[:, 4:6]
     return boxes
 
 

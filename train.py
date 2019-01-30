@@ -14,6 +14,8 @@ import torch.nn.init as init
 import torch.utils.data as data
 import numpy as np
 import argparse
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
 def str2bool(v):
@@ -85,8 +87,10 @@ def train():
             parser.error('Must specify dataset if specifying dataset_root')
         cfg = voc
         dataset = VOCDetection(root=args.dataset_root,
-                               transform=SSDAugmentation(cfg['min_dim'],
-                                                         MEANS))
+                               transform=SSDAugmentation(cfg['min_dim'], MEANS))
+    elif args.dataset == 'CrowdHuman':
+        dataset = CrowdHumanDetection(root=args.dataset_root, annopath='annotation_train.odgt'
+                               transform=SSDAugmentation(cfg['min_dim'], MEANS))
 
     if args.visdom:
         import visdom
