@@ -89,7 +89,8 @@ def train():
         dataset = VOCDetection(root=args.dataset_root,
                                transform=SSDAugmentation(cfg['min_dim'], MEANS))
     elif args.dataset == 'CrowdHuman':
-        dataset = CrowdHumanDetection(root=args.dataset_root, annopath='annotation_train.odgt'
+        cfg = crowdHuman
+        dataset = CrowdHumanDetection(root=args.dataset_root, annopath='/home/shh/Passport/jyz/data/crowdHuman/annotation_train.odgt',
                                transform=SSDAugmentation(cfg['min_dim'], MEANS))
 
     if args.visdom:
