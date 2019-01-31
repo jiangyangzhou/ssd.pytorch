@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from layers import *
-from data import voc, coco
+from data import crowdHuman
 import os
 
 
@@ -30,7 +30,7 @@ class SSD(nn.Module):
         self.phase = phase
         self.num_classes = num_classes
         self.cfg = crowdHuman
-        self.priorbox = CHPriorBox(self.cfg)
+        self.priorbox = ChPriorBox(self.cfg)
         self.priors = Variable(self.priorbox.forward(), volatile=True)
         self.size = size
 

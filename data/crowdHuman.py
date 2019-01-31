@@ -12,6 +12,7 @@ import torch
 import torch.utils.data as data
 import cv2
 import numpy as np
+import json
 if sys.version_info[0] == 2:
     import xml.etree.cElementTree as ET
 else:
@@ -90,7 +91,7 @@ class CrowdHumanDetection(data.Dataset):
     """
 
     def __init__(self, root,
-                 image_sets=['train'，'val'],
+                 image_sets=['train', 'val'],
                  transform=None, target_transform=CrowdHumanAnnotationTransform(),
                  dataset_name='crowdHuman'):
         self.root = root
@@ -199,11 +200,16 @@ class CrowdHumanDetection(data.Dataset):
                  transform=None, target_transform=CrowdHumanAnnotationTransform(),
                  dataset_name='crowdHuman'):
         self.root = root
-        self.image_set = image_sets
         self.transform = transform
         self.target_transform = target_transform
         self.name = dataset_name
-        self.anno = josn.load(annopath)
+        self.anno=[]
+        with open(annopath,'r') as f:
+            while True:
+                d = f.readline()
+                if not d:
+                    break
+                self.anno.append(json.loads(d))
         self._imgpath = osp.join(root, '/Images', '%s.jpg')
 
     def __getitem__(self, index):
@@ -222,11 +228,11 @@ class CrowdHumanDetection(data.Dataset):
         for b in img_boxes:
             if b['tag']=='person':
                 hbox=b['hbox'][:2]+ [b['hbox'][0]+b['hbox'][2], b['hbox'][1]+b['hbox'][3]]
-                if 'head_attr' in b.keys() and b['head_attr']['ignore']==1
+                if 'head_attr' in b.keys() and b['head_attr']['ignore']==1:
                     hbox = [-1,0,0,0]
                     print("ignore head")
                 fbox= b['fbox'][:2]+ [b['fbox'][0]+b['fbox'][2], b['fbox'][1]+b['fbox'][3]]
-                if 'extra' in b.keys() and b['head_attr']['ignore']==1
+                if 'extra' in b.keys() and b['head_attr']['ignore']==1:
                     fbox = [-1,0,0,0]
                     print("ignore body")
                 box_list.append(fbox+hbox+[1])
