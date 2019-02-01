@@ -120,6 +120,20 @@ class SSD(nn.Module):
         else:
             print('Sorry only .pth and .pkl files supported.')
 
+    def load_ssd_weights(self, base_file):
+        other, ext = os.path.splitext(base_file)
+        if ext == '.pkl' or '.pth':
+            print('Loading weights into state dict...')
+            ssd_dict=torch.load(base_file)
+            model_dict = self.state_dict()
+            ssd_dict = {k: v for k, v in ssd_dict.items() if k in model_dict}
+            model_dict.update(model_dict) 
+            self.load_state_dict(model_dict)
+            print('Finished!')
+        else:
+            print('Sorry only .pth and .pkl files supported.')
+
+
 
 # This function is derived from torchvision VGG make_layers()
 # https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py
