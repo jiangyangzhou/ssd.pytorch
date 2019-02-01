@@ -22,7 +22,7 @@ CH_CLASSES = (  # always index 0
     'person','head')
 
 # note: if you used our download scripts, this should be right
-CH_ROOT = osp.join(HOME, "jyz/data/crowdHuman/")
+CH_ROOT = osp.join(HOME, "Passport/jyz/data/crowdHuman/")
 
 
 class CrowdHumanAnnotationTransform(object):
@@ -72,113 +72,6 @@ class CrowdHumanAnnotationTransform(object):
 
         return res  # [[xmin, ymin, xmax, ymax, label_ind], ... ]
 
-
-class CrowdHumanDetection(data.Dataset):
-    """CrowdHuman Detection Dataset Object
-        (cause I have converted crowdhuman dataset to the voc form, so it's based on voc script)
-    input is image, target is annotation
-
-    Arguments:
-        root (string): filepath to VOCdevkit folder.
-        image_set (string): imageset to use (eg. 'train', 'val', 'test')
-        transform (callable, optional): transformation to perform on the
-            input image
-        target_transform (callable, optional): transformation to perform on the
-            target `annotation`
-            (eg: take in caption string, return tensor of word indices)
-        dataset_name (string, optional): which dataset to load
-            (default: 'VOC2007')
-    """
-
-    def __init__(self, root,
-                 image_sets=['train', 'val'],
-                 transform=None, target_transform=CrowdHumanAnnotationTransform(),
-                 dataset_name='crowdHuman'):
-        self.root = root
-        self.image_set = image_sets
-        self.transform = transform
-        self.target_transform = target_transform
-        self.name = dataset_name
-        self._annopath = osp.join('%s', 'Annotations', '%s.xml')
-        self._imgpath = osp.join('%s','..','Images', '%s.jpg')
-        self.ids = list()
-        rootpath = osp.join(self.root, 'VOC_data')
-        for name in image_sets:
-            for line in open(osp.join(rootpath, 'ImageSets', 'Main', name + '.txt')):
-                self.ids.append((rootpath, line.strip()))
-
-    def __getitem__(self, index):
-        im, gt, h, w = self.pull_item(index)
-
-        return im, gt
-
-    def __len__(self):
-        return len(self.ids)
-
-    def pull_item(self, index):
-        img_id = self.ids[index]
-
-        target = ET.parse(self._annopath % img_id).getroot()
-        size = target.find('size')
-        width = int(size.find('width').text)
-        height = int(size.find('height').text)
-        if self.target_transform is not None:
-            target= self.target_transform(target,height,width)
-
-        if self.transform is not None:
-            target = np.array(target)
-            img, boxes, labels = self.transform(img, target[:, :4], target[:, 4])
-            # to rgb
-            img = img[:, :, (2, 1, 0)]
-            # img = img.transpose(2, 0, 1)
-            target = np.hstack((boxes, np.expand_dims(labels, axis=1)))
-        return torch.from_numpy(img).permute(2, 0, 1), target, height, width
-        # return torch.from_numpy(img), target, height, width
-
-    def pull_image(self, index):
-        '''Returns the original image object at index in PIL form
-
-        Note: not using self.__getitem__(), as any transformations passed in
-        could mess up this functionality.
-
-        Argument:
-            index (int): index of img to show
-        Return:
-            PIL img
-        '''
-        img_id = self.ids[index]
-        return cv2.imread(self._imgpath % img_id, cv2.IMREAD_COLOR)
-
-    def pull_anno(self, index):
-        '''Returns the original annotation of image at index
-
-        Note: not using self.__getitem__(), as any transformations passed in
-        could mess up this functionality.
-
-        Argument:
-            index (int): index of img to get annotation of
-        Return:
-            list:  [img_id, [(label, bbox coords),...]]
-                eg: ('001718', [('dog', (96, 13, 438, 332))])
-        '''
-        img_id = self.ids[index]
-        anno = ET.parse(self._annopath % img_id).getroot()
-        gt = self.target_transform(anno, 1, 1)
-        return img_id[1], gt
-
-    def pull_tensor(self, index):
-        '''Returns the original image at an index in tensor form
-
-        Note: not using self.__getitem__(), as any transformations passed in
-        could mess up this functionality.
-
-        Argument:
-            index (int): index of img to show
-        Return:
-            tensorized version of img, squeezed
-        '''
-        return torch.Tensor(self.pull_image(index)).unsqueeze_(0)
-
 class CrowdHumanDetection(data.Dataset):
     """CrowdHuman Detection Dataset Object
         (cause I have converted crowdhuman dataset to the voc form, so it's based on voc script)
@@ -197,11 +90,10 @@ class CrowdHumanDetection(data.Dataset):
     """
 
     def __init__(self, root, annopath,
-                 transform=None, target_transform=CrowdHumanAnnotationTransform(),
+                 transform=None, 
                  dataset_name='crowdHuman'):
         self.root = root
         self.transform = transform
-        self.target_transform = target_transform
         self.name = dataset_name
         self.anno=[]
         with open(annopath,'r') as f:
@@ -210,40 +102,49 @@ class CrowdHumanDetection(data.Dataset):
                 if not d:
                     break
                 self.anno.append(json.loads(d))
-        self._imgpath = osp.join(root, '/Images', '%s.jpg')
+        print("root is:",root)
+        self._imgpath = osp.join(root+'/Images', '%s.jpg')
+        print("self._imgpath is:",self._imgpath)
 
     def __getitem__(self, index):
         im, gt, h, w = self.pull_item(index)
         return im, gt
 
     def __len__(self):
-        return len(self.ids)
+        return len(self.anno)
 
     def pull_item(self, index):
         img_info = self.anno[index]
-        ima_name = self.anno[index]['ID']
+        img_id = self.anno[index]['ID']
         img = cv2.imread(self._imgpath % img_id)
+        print(img.shape)
+        height,width,channel = img.shape
         img_boxes = self.anno[index]['gtboxes']
         box_list = list()
         for b in img_boxes:
             if b['tag']=='person':
                 hbox=b['hbox'][:2]+ [b['hbox'][0]+b['hbox'][2], b['hbox'][1]+b['hbox'][3]]
-                if 'head_attr' in b.keys() and b['head_attr']['ignore']==1:
+                if 'head_attr' in b.keys() and 'ignore' in b['head_attr'].keys() and b['head_attr']['ignore']==1:
                     hbox = [-1,0,0,0]
                     print("ignore head")
                 fbox= b['fbox'][:2]+ [b['fbox'][0]+b['fbox'][2], b['fbox'][1]+b['fbox'][3]]
-                if 'extra' in b.keys() and b['head_attr']['ignore']==1:
+                if 'extra' in b.keys() and 'extra' in b['extra'].keys() and b['extra']['ignore']==1:
                     fbox = [-1,0,0,0]
                     print("ignore body")
                 box_list.append(fbox+hbox+[1])
         if self.transform is not None:
-            target = np.array(box_list)
-            print("target's shape is",target.shape)
-            img, boxes, labels = self.transform(img, torch.cat((target[:, :4], target[:,4:8]),1), target[:, 8])
+            target = np.array(box_list,dtype='float')
+            box_num = len(box_list)
+            print("target's shape is",target.shape, "box_num=",box_num)
+            img, boxes, labels = self.transform(img, np.vstack((target[:, :4], target[:,4:8])), np.ones((2*box_num,1)) )
             # to rgb
             img = img[:, :, (2, 1, 0)]
             # img = img.transpose(2, 0, 1)
-            target = np.hstack((boxes, np.expand_dims(labels, axis=1)))
+            print("box and label shape1:",boxes.shape,labels.shape)
+            boxes = np.hstack((boxes[:box_num,:],boxes[box_num:,:]))
+            labels = labels[:box_num]
+            print("box and label shape2:",boxes.shape,labels.shape)
+            target = np.hstack((boxes, labels))
         return torch.from_numpy(img).permute(2, 0, 1), target, height, width
         # return torch.from_numpy(img), target, height, width
 
@@ -258,9 +159,10 @@ class CrowdHumanDetection(data.Dataset):
         Return:
             PIL img
         '''
-        img_id = self.ids[index]
-        return cv2.imread(self._imgpath % img_id, cv2.IMREAD_COLOR)
-
+        img_name = self.anno[index]['ID']
+        img = cv2.imread(self._imgpath % img_name)
+        return img
+        
     def pull_anno(self, index):
         '''Returns the original annotation of image at index
 
@@ -273,8 +175,23 @@ class CrowdHumanDetection(data.Dataset):
             list:  [img_id, [(label, bbox coords),...]]
                 eg: ('001718', [('dog', (96, 13, 438, 332))])
         '''
-        img_id = self.ids[index]
-        anno = ET.parse(self._annopath % img_id).getroot()
+        anno = self.anno[index]
+        box_list = list()
+        img_boxes=anno['gt_boxes']
+        for b in img_boxes:
+            if b['tag']=='person':
+                hbox=b['hbox'][:2]+ [b['hbox'][0]+b['hbox'][2], b['hbox'][1]+b['hbox'][3]]
+                if 'head_attr' in b.keys() and b['head_attr']['ignore']==1:
+                    hbox = [-1,0,0,0]
+                    print("ignore head")
+                fbox= b['fbox'][:2]+ [b['fbox'][0]+b['fbox'][2], b['fbox'][1]+b['fbox'][3]]
+                if 'extra' in b.keys() and b['head_attr']['ignore']==1:
+                    fbox = [-1,0,0,0]
+                    print("ignore body")
+                box_list.append(['person',tuple(fbox+hbox)])
+        return (anno['ID'],box_list)
+
+ 
         gt = self.target_transform(anno, 1, 1)
         return img_id[1], gt
 
