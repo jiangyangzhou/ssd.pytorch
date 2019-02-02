@@ -125,11 +125,11 @@ class CrowdHumanDetection(data.Dataset):
             if b['tag']=='person':
                 hbox=b['hbox'][:2]+ [b['hbox'][0]+b['hbox'][2], b['hbox'][1]+b['hbox'][3]]
                 if 'head_attr' in b.keys() and 'ignore' in b['head_attr'].keys() and b['head_attr']['ignore']==1:
-                    hbox = [-1,0,0,0]
+                    hbox = [0,0,0,0]
                     print("ignore head")
                 fbox= b['fbox'][:2]+ [b['fbox'][0]+b['fbox'][2], b['fbox'][1]+b['fbox'][3]]
                 if 'extra' in b.keys() and 'extra' in b['extra'].keys() and b['extra']['ignore']==1:
-                    fbox = [-1,0,0,0]
+                    fbox = [0,0,0,0]
                     print("ignore body")
                 box_list.append(fbox+hbox+[1])
         if self.transform is not None:
@@ -141,7 +141,10 @@ class CrowdHumanDetection(data.Dataset):
             img = img[:, :, (2, 1, 0)]
             # img = img.transpose(2, 0, 1)
             print("box and label shape1:",boxes.shape,labels.shape)
-            boxes = np.hstack((boxes[:box_num,:],boxes[box_num:,:]))
+            try:
+                boxes = np.hstack((boxes[:box_num,:],boxes[box_num:,:]))
+            except ValueError as e:
+                print(box_num,boxes.shape,e)
             labels = labels[:box_num]
             print("box and label shape2:",boxes.shape,labels.shape)
             target = np.hstack((boxes, labels))
