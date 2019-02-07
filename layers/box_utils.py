@@ -87,7 +87,7 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """
     # jaccard index
     overlaps = jaccard(    #[A,B] truth:[A,4]  priors:[B,4]
-        truths,
+        truths[:,:4],
         point_form(priors[:,:4])
     )
     # (Bipartite Matching)
@@ -107,7 +107,8 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
         best_truth_idx[best_prior_idx[j]] = j      #for No j truth's best prior box, set its best match truth to j
     matches = truths[best_truth_idx]          # Shape: [num_priors,4]
     conf = labels[best_truth_idx] + 1         # Shape: [num_priors]
-    conf[best_truth_overlap < threshold] = 0  # label as background
+    conf[best_truth_overlap < threshold] = 0  # label as background    
+    print("match and prior shape:",matches.shape,priors.shape)
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
     conf_t[idx] = conf  # [num_priors] top class label for each prior
@@ -136,12 +137,13 @@ def encode(matched, priors, variances):
 
     g_cxcy2 = (matched[:, 4:6] + matched[:, 6:])/2 - priors[:, 4:6]
     # encode variance
-    g_cxcy2 /= (variances[0] * priors[:, 4:6])
+    g_cxcy2 /= (variances[0] * priors[:, 6:])
     # match wh / prior wh
     g_wh2 = (matched[:, 6:] - matched[:, 4:6]) / priors[:, 6:]
     g_wh2 = torch.log(g_wh2) / variances[1]
     # return target for smooth_l1_loss
-    return torch.cat([g_cxcy, g_wh, g_cxcy2, g_wh2], 1)  # [num_priors,4]
+    ans = torch.cat([g_cxcy, g_wh, g_cxcy2, g_wh2], 1)  # [num_priors,4]
+    return ans
 
 
 # Adapted from https://github.com/Hakuyume/chainer-ssd

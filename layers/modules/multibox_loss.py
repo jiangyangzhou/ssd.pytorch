@@ -58,13 +58,15 @@ class MultiBoxLoss(nn.Module):
                 shape: [batch_size,num_objs,5] (last idx is the label).
         """
         loc_data, conf_data, priors = predictions
+        print("prediction:",loc_data.shape, conf_data.shape, priors.shape, self.num_classes)
+        print("targets:",len(targets),targets[0].shape)
         num = loc_data.size(0)  #batch size
         priors = priors[:loc_data.size(1), :]
         num_priors = (priors.size(0))
         num_classes = self.num_classes
 
         # match priors (default boxes) and ground truth boxes
-        loc_t = torch.Tensor(num, num_priors, 4)        #[dx,dy,w,h]  dx:中心距离/(variance*dx),
+        loc_t = torch.Tensor(num, num_priors, 8)        #[dx,dy,w,h]  dx:中心距离/(variance*dx),
         conf_t = torch.LongTensor(num, num_priors)      #label+1
         for idx in range(num):
             truths = targets[idx][:, :-1].data
@@ -81,20 +83,22 @@ class MultiBoxLoss(nn.Module):
 
         pos = conf_t > 0
         num_pos = pos.sum(dim=1, keepdim=True)
-
+        print(loc_data.shape,loc_t.shape,conf_t.shape)
         # Localization Loss (Smooth L1)
         # Shape: [batch,num_priors,4]
         pos_idx = pos.unsqueeze(pos.dim()).expand_as(loc_data)
-        loc_p = loc_data[pos_idx].view(-1, 4)
-        loc_t = loc_t[pos_idx].view(-1, 4)
+        loc_p = loc_data[pos_idx].view(-1, 8)
+        loc_t = loc_t[pos_idx].view(-1, 8)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
 
         # Compute max conf across batch for hard negative mining
         batch_conf = conf_data.view(-1, self.num_classes)
         loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
-
+        print("loss_c and pos shape:",loss_c.shape, pos.shape)
+        #print(pos[:,:300])
+        #posidx2 = pos.contiguous().view(-1,1)
         # Hard Negative Mining
-        loss_c[pos] = 0  # filter out pos boxes for now
+        #loss_c[pos] = 0  # filter out pos boxes for now
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
         _, idx_rank = loss_idx.sort(1)

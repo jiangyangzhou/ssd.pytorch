@@ -108,6 +108,7 @@ class SSD(nn.Module):
                 conf.view(conf.size(0), -1, self.num_classes),
                 self.priors
             )
+        print("output's shape:",output[0].shape,output[1].shape,output[2].shape)
         return output
 
     def load_weights(self, base_file):
@@ -204,7 +205,7 @@ extras = {
     '512': [],
 }
 mbox = {
-    '300': [4, 6, 6, 6, 4, 4],  # number of boxes per feature map location
+    '300': [3, 4, 4, 4, 3, 3],  # number of boxes per feature map location
     '512': [],
 }
 

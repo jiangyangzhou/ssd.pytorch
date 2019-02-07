@@ -117,7 +117,6 @@ class CrowdHumanDetection(data.Dataset):
         img_info = self.anno[index]
         img_id = self.anno[index]['ID']
         img = cv2.imread(self._imgpath % img_id)
-        print(img.shape)
         height,width,channel = img.shape
         img_boxes = self.anno[index]['gtboxes']
         box_list = list()
@@ -125,29 +124,47 @@ class CrowdHumanDetection(data.Dataset):
             if b['tag']=='person':
                 hbox=b['hbox'][:2]+ [b['hbox'][0]+b['hbox'][2], b['hbox'][1]+b['hbox'][3]]
                 if 'head_attr' in b.keys() and 'ignore' in b['head_attr'].keys() and b['head_attr']['ignore']==1:
-                    hbox = [0,0,0,0]
+                    hbox = [0.,0.,0.,0.]
                     print("ignore head")
                 fbox= b['fbox'][:2]+ [b['fbox'][0]+b['fbox'][2], b['fbox'][1]+b['fbox'][3]]
                 if 'extra' in b.keys() and 'extra' in b['extra'].keys() and b['extra']['ignore']==1:
-                    fbox = [0,0,0,0]
+                    fbox = [0.,0.,0.,0.]
                     print("ignore body")
+                for i in range(4):
+                    if i%2==0:
+                        fbox[i]/=float(width)
+                        hbox[i]/=float(width)
+                    else:
+                        fbox[i]/=float(height)
+                        hbox[i]/=float(height)
                 box_list.append(fbox+hbox+[1])
         if self.transform is not None:
             target = np.array(box_list,dtype='float')
             box_num = len(box_list)
-            print("target's shape is",target.shape, "box_num=",box_num)
-            img, boxes, labels = self.transform(img, np.vstack((target[:, :4], target[:,4:8])), np.ones((2*box_num,1)) )
+            img, boxes, labels = self.transform(img, np.vstack((target[:, :4], target[:,4:8])), np.arange((2*box_num)))
+            dic={}
+            for i in range(boxes.shape[0]):
+                if labels[i] not in dic.keys() and labels[i]<box_num:
+                    dic[labels[i]]=np.zeros(8)
+                    dic[labels[i]][:4] = boxes[i,:]
+                elif labels[i]>box_num:
+                    if labels[i]-box_num not in dic.keys():
+                        dic[labels[i]-box_num]=np.zeros(8)
+                    dic[labels[i]-box_num][4:] = boxes[i,:]
+            boxes1 = [b for b in dic.values()]
+            boxes1 = np.array(boxes1,dtype='float')
+            #print(dic)
+            #print(boxes,labels)
+            #print(boxes1)
+            #print("boxes shape",boxes1.shape,boxes.shape)
             # to rgb
             img = img[:, :, (2, 1, 0)]
             # img = img.transpose(2, 0, 1)
-            print("box and label shape1:",boxes.shape,labels.shape)
             try:
-                boxes = np.hstack((boxes[:box_num,:],boxes[box_num:,:]))
-            except ValueError as e:
-                print(box_num,boxes.shape,e)
-            labels = labels[:box_num]
-            print("box and label shape2:",boxes.shape,labels.shape)
-            target = np.hstack((boxes, labels))
+                target = np.hstack((boxes1, np.ones((boxes1.shape[0],1))))
+            except:
+                print(boxes.shape,boxes1.shape)
+            print("target shape:",target.shape)
         return torch.from_numpy(img).permute(2, 0, 1), target, height, width
         # return torch.from_numpy(img), target, height, width
 
