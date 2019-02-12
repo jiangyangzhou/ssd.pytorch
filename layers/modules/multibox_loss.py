@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -58,8 +58,8 @@ class MultiBoxLoss(nn.Module):
                 shape: [batch_size,num_objs,5] (last idx is the label).
         """
         loc_data, conf_data, priors = predictions
-        print("prediction:",loc_data.shape, conf_data.shape, priors.shape, self.num_classes)
-        print("targets:",len(targets),targets[0].shape)
+        #print("prediction:",loc_data.shape, conf_data.shape, priors.shape, self.num_classes)
+        #print("targets:",len(targets),targets[0].shape)
         num = loc_data.size(0)  #batch size
         priors = priors[:loc_data.size(1), :]
         num_priors = (priors.size(0))
@@ -74,6 +74,7 @@ class MultiBoxLoss(nn.Module):
             defaults = priors.data
             match(self.threshold, truths, defaults, self.variance, labels,
                   loc_t, conf_t, idx)
+        #print("loc_t",loc_t[0,:2,:])
         if self.use_gpu:
             loc_t = loc_t.cuda()
             conf_t = conf_t.cuda()
@@ -83,22 +84,25 @@ class MultiBoxLoss(nn.Module):
 
         pos = conf_t > 0
         num_pos = pos.sum(dim=1, keepdim=True)
-        print(loc_data.shape,loc_t.shape,conf_t.shape)
+        #print(loc_data.shape,loc_t.shape,conf_t.shape)
         # Localization Loss (Smooth L1)
         # Shape: [batch,num_priors,4]
         pos_idx = pos.unsqueeze(pos.dim()).expand_as(loc_data)
         loc_p = loc_data[pos_idx].view(-1, 8)
         loc_t = loc_t[pos_idx].view(-1, 8)
+        pos_nohead = loc_t < -100000
+        loc_t.data[pos_nohead] = loc_p.data[pos_nohead]
+        #print(loc_p[:3,:],loc_t[:3,:])
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
 
         # Compute max conf across batch for hard negative mining
         batch_conf = conf_data.view(-1, self.num_classes)
         loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
-        print("loss_c and pos shape:",loss_c.shape, pos.shape)
+        #print("loss_c and pos shape:",loss_c.shape, pos.shape)
         #print(pos[:,:300])
-        #posidx2 = pos.contiguous().view(-1,1)
+        posidx2 = pos.contiguous().view(-1,1)
         # Hard Negative Mining
-        #loss_c[pos] = 0  # filter out pos boxes for now
+        loss_c[posidx2] = 0  # filter out pos boxes for now
         loss_c = loss_c.view(num, -1)
         _, loss_idx = loss_c.sort(1, descending=True)
         _, idx_rank = loss_idx.sort(1)
@@ -116,6 +120,6 @@ class MultiBoxLoss(nn.Module):
         # Sum of losses: L(x,c,l,g) = (Lconf(x, c) + αLloc(x,l,g)) / N
 
         N = num_pos.data.sum()
-        loss_l /= N
-        loss_c /= N
+        loss_l /= float(N)
+        loss_c /= float(N)
         return loss_l, loss_c

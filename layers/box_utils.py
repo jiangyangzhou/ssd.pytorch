@@ -108,7 +108,8 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     matches = truths[best_truth_idx]          # Shape: [num_priors,4]
     conf = labels[best_truth_idx] + 1         # Shape: [num_priors]
     conf[best_truth_overlap < threshold] = 0  # label as background    
-    print("match and prior shape:",matches.shape,priors.shape)
+    #print("match and prior shape:",matches.shape,priors.shape)
+    #print("loc:",matches[:2,:])
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
     conf_t[idx] = conf  # [num_priors] top class label for each prior
@@ -134,13 +135,16 @@ def encode(matched, priors, variances):
     # match wh / prior wh
     g_wh = (matched[:, 2:4] - matched[:, :2]) / priors[:, 2:4]
     g_wh = torch.log(g_wh) / variances[1]
-
+    
+    pos_nohead = matched<0.00001
     g_cxcy2 = (matched[:, 4:6] + matched[:, 6:])/2 - priors[:, 4:6]
     # encode variance
     g_cxcy2 /= (variances[0] * priors[:, 6:])
     # match wh / prior wh
     g_wh2 = (matched[:, 6:] - matched[:, 4:6]) / priors[:, 6:]
     g_wh2 = torch.log(g_wh2) / variances[1]
+    g_cxcy2[pos_nohead[:,4:6]]=-200000
+    g_wh2[pos_nohead[:,6:]]=-200000
     # return target for smooth_l1_loss
     ans = torch.cat([g_cxcy, g_wh, g_cxcy2, g_wh2], 1)  # [num_priors,4]
     return ans
