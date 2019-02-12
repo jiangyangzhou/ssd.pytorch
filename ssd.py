@@ -108,7 +108,7 @@ class SSD(nn.Module):
                 conf.view(conf.size(0), -1, self.num_classes),
                 self.priors
             )
-        print("output's shape:",output[0].shape,output[1].shape,output[2].shape)
+        #print("output's shape:",output[0].shape,output[1].shape,output[2].shape)
         return output
 
     def load_weights(self, base_file):

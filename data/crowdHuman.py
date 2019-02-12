@@ -7,6 +7,7 @@ Updated by: Ellis Brown, Max deGroot, Yangzhou Jiang
 """
 from .config import HOME
 import os.path as osp
+import time
 import sys
 import torch
 import torch.utils.data as data
@@ -120,16 +121,17 @@ class CrowdHumanDetection(data.Dataset):
         height,width,channel = img.shape
         img_boxes = self.anno[index]['gtboxes']
         box_list = list()
+        #t0 = time.time()
         for b in img_boxes:
             if b['tag']=='person':
                 hbox=b['hbox'][:2]+ [b['hbox'][0]+b['hbox'][2], b['hbox'][1]+b['hbox'][3]]
                 if 'head_attr' in b.keys() and 'ignore' in b['head_attr'].keys() and b['head_attr']['ignore']==1:
                     hbox = [0.,0.,0.,0.]
-                    print("ignore head")
+                    #print("ignore head")
                 fbox= b['fbox'][:2]+ [b['fbox'][0]+b['fbox'][2], b['fbox'][1]+b['fbox'][3]]
                 if 'extra' in b.keys() and 'extra' in b['extra'].keys() and b['extra']['ignore']==1:
-                    fbox = [0.,0.,0.,0.]
-                    print("ignore body")
+                    box = [0.,0.,0.,0.]
+                    #print("ignore body")
                 for i in range(4):
                     if i%2==0:
                         fbox[i]/=float(width)
@@ -139,15 +141,17 @@ class CrowdHumanDetection(data.Dataset):
                         hbox[i]/=float(height)
                 box_list.append(fbox+hbox+[1])
         if self.transform is not None:
+            #t1=time.time()
             target = np.array(box_list,dtype='float')
             box_num = len(box_list)
             img, boxes, labels = self.transform(img, np.vstack((target[:, :4], target[:,4:8])), np.arange((2*box_num)))
+            t3=time.time()
             dic={}
             for i in range(boxes.shape[0]):
                 if labels[i] not in dic.keys() and labels[i]<box_num:
                     dic[labels[i]]=np.zeros(8)
                     dic[labels[i]][:4] = boxes[i,:]
-                elif labels[i]>box_num:
+                elif labels[i]>=box_num:
                     if labels[i]-box_num not in dic.keys():
                         dic[labels[i]-box_num]=np.zeros(8)
                     dic[labels[i]-box_num][4:] = boxes[i,:]
@@ -160,11 +164,18 @@ class CrowdHumanDetection(data.Dataset):
             # to rgb
             img = img[:, :, (2, 1, 0)]
             # img = img.transpose(2, 0, 1)
+            boxes1 = np.clip(boxes1,a_min=0.,a_max=1.)
+            #print("boxes1's shape:",boxes1.shape)
+            #t2 = time.time()
+            #print("in crowdHuman: %.4f, %.4f, %.4f sec"%(t1-t0,t2-t0,t3-t1), end=' ')
+            #print("boxes.shape:",boxes.shape)
             try:
-                target = np.hstack((boxes1, np.ones((boxes1.shape[0],1))))
-            except:
-                print(boxes.shape,boxes1.shape)
-            print("target shape:",target.shape)
+                target = np.hstack((boxes1, np.zeros((boxes1.shape[0],1))))
+            except ValueError as e:
+                print(e)
+                print("boxes1.shape:",boxes1.shape, "boxes shape", boxes.shape)
+            #print("target shape:",target.shape)
+            #print("crowdHuman.py: target:",target[:2,:])
         return torch.from_numpy(img).permute(2, 0, 1), target, height, width
         # return torch.from_numpy(img), target, height, width
 

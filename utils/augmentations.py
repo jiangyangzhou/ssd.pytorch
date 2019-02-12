@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import types
 from numpy import random
-
+import time
 
 def intersect(box_a, box_b):
     max_xy = np.minimum(box_a[:, 2:], box_b[2:])
@@ -49,7 +49,10 @@ class Compose(object):
 
     def __call__(self, img, boxes=None, labels=None):
         for t in self.transforms:
+            #t0=time.time()
             img, boxes, labels = t(img, boxes, labels)
+            #t1=time.time()
+            #print("%.4f sec"%(t1-t0),t.__class__)
         return img, boxes, labels
 
 
@@ -318,7 +321,7 @@ class Expand(object):
             return image, boxes, labels
 
         height, width, depth = image.shape
-        ratio = random.uniform(1, 4)
+        ratio = random.uniform(1, 2)
         left = random.uniform(0, width*ratio - width)
         top = random.uniform(0, height*ratio - height)
 
