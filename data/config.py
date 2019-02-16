@@ -43,8 +43,8 @@ coco = {
 
 crowdHuman = {
     'num_classes': 2,
-    'lr_steps': (80000, 100000, 120000),
-    'max_iter': 120000,
+    'lr_steps': (280000, 360000, 400000),
+    'max_iter': 360000,
     'feature_maps': [38, 19, 10, 5, 3, 1],
     'min_dim': 300,
     'steps': [8, 16, 32, 64, 100, 300],

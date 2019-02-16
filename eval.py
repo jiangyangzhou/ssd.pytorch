@@ -9,8 +9,11 @@ import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
-from data import VOC_ROOT, VOCAnnotationTransform, VOCDetection, BaseTransform
-from data import VOC_CLASSES as labelmap
+#from data import VOC_ROOT, VOCAnnotationTransform, VOCDetection, BaseTransform
+#from data import VOC_CLASSES as labelmap
+from data import CH_ROOT,CrowdHumanDetection, BaseTransform
+from data import CH_CLASSES as labelmap
+ 
 import torch.utils.data as data
 
 from ssd import build_ssd
@@ -22,6 +25,7 @@ import argparse
 import numpy as np
 import pickle
 import cv2
+import json
 
 if sys.version_info[0] == 2:
     import xml.etree.cElementTree as ET
@@ -36,18 +40,20 @@ def str2bool(v):
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Evaluation')
 parser.add_argument('--trained_model',
-                    default='weights/ssd300_mAP_77.43_v2.pth', type=str,
+                    default='weights/CrowdHuman.pth', type=str,
                     help='Trained state_dict file path to open')
 parser.add_argument('--save_folder', default='eval/', type=str,
                     help='File path to save results')
 parser.add_argument('--confidence_threshold', default=0.01, type=float,
                     help='Detection confidence threshold')
-parser.add_argument('--top_k', default=5, type=int,
+parser.add_argument('--top_k', default=400, type=int,
                     help='Further restrict the number of predictions to parse')
 parser.add_argument('--cuda', default=True, type=str2bool,
                     help='Use cuda to train model')
-parser.add_argument('--voc_root', default=VOC_ROOT,
-                    help='Location of VOC root directory')
+parser.add_argument('--CH_root', default=CH_ROOT,
+                    help='Location of CrowdHuman root directory')
+parser.add_argument('--annopath',default='/home/shh/Passport/jyz/data/crowdHuman/annotation_val.odgt',help='annotation path of CrowdHuman .odgt')
+parser.add_argument('--imageset', default='val',help='imageset name')
 parser.add_argument('--cleanup', default=True, type=str2bool,
                     help='Cleanup and remove results files following eval')
 
@@ -66,12 +72,12 @@ if torch.cuda.is_available():
 else:
     torch.set_default_tensor_type('torch.FloatTensor')
 
-annopath = os.path.join(args.voc_root, 'VOC2007', 'Annotations', '%s.xml')
-imgpath = os.path.join(args.voc_root, 'VOC2007', 'JPEGImages', '%s.jpg')
-imgsetpath = os.path.join(args.voc_root, 'VOC2007', 'ImageSets',
+#annopath = os.path.join(args.CH_root, 'Annotations', '%s.xml')
+imgpath = os.path.join(args.CH_root,  'Images', '%s.jpg')
+imgsetpath = os.path.join(args.CH_root, 'voc_data', 'ImageSets',
                           'Main', '{:s}.txt')
-YEAR = '2007'
-devkit_path = args.voc_root + 'VOC' + YEAR
+#YEAR = '2007'
+devkit_path = args.save_folder
 dataset_mean = (104, 117, 123)
 set_type = 'test'
 
@@ -120,6 +126,21 @@ def parse_rec(filename):
 
     return objects
 
+def parse_odgt(filename):
+    rec_dic={}
+    with open(filename,'r') as f:
+        while(True):
+            d = f.readline()
+            if not d:
+                break
+            obj = json.loads(d)
+            boxes = np.array([p['fbox']+p['hbox'] for p in obj['gtboxes']])
+            boxes[:,2:4]+=boxes[:,:2]
+            boxes[:,6:] +=boxes[:,4:6]
+            difficults = [1 if 'head_attr' in p.keys() and 'ignore' in p['head_attr'].keys() and p['head_attr']['ignore']==1 else 0 for p in obj['gtboxes']]
+            rec_dic[obj['ID']] = {'bbox':boxes,'difficults':difficults,'name':'person'}
+    return rec_dic
+    
 
 def get_output_dir(name, phase):
     """Return the directory where experimental artifacts are placed.
@@ -143,24 +164,29 @@ def get_voc_results_file_template(image_set, cls):
     return path
 
 
-def write_voc_results_file(all_boxes, dataset):
+def write_voc_results_file(all_boxes, imageset):
+    imgfile_l = []
+    for line in open(imgsetpath.format(imageset)):
+        imgfile_l.append(line.strip())
     for cls_ind, cls in enumerate(labelmap):
         print('Writing {:s} VOC results file'.format(cls))
         filename = get_voc_results_file_template(set_type, cls)
         with open(filename, 'wt') as f:
-            for im_ind, index in enumerate(dataset.ids):
+            for im_ind, img_file in enumerate(imgfile_l):
                 dets = all_boxes[cls_ind+1][im_ind]
                 if dets == []:
                     continue
                 # the VOCdevkit expects 1-based indices
                 for k in range(dets.shape[0]):
-                    f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
-                            format(index[1], dets[k, -1],
-                                   dets[k, 0] + 1, dets[k, 1] + 1,
-                                   dets[k, 2] + 1, dets[k, 3] + 1))
+                    f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
+                            format(img_file, dets[k, -1],
+                                   dets[k, 0], dets[k, 1],
+                                   dets[k, 2], dets[k, 3],
+                                   dets[k, 4],  dets[k, 5],
+                                   dets[k, 6], dets[k, 7]))
 
 
-def do_python_eval(output_dir='output', use_07=True):
+def do_python_eval(output_dir,annopath,imageset=set_type, use_07=True):
     cachedir = os.path.join(devkit_path, 'annotations_cache')
     aps = []
     # The PASCAL VOC metric changed in 2010
@@ -170,11 +196,12 @@ def do_python_eval(output_dir='output', use_07=True):
         os.mkdir(output_dir)
     for i, cls in enumerate(labelmap):
         filename = get_voc_results_file_template(set_type, cls)
-        rec, prec, ap = voc_eval(
-           filename, annopath, imgsetpath.format(set_type), cls, cachedir,
+        rec, prec, ap , h_rec, h_prec, h_ap= voc_eval(
+           filename, annopath, imgsetpath.format(imageset), cls,
            ovthresh=0.5, use_07_metric=use_07_metric)
-        aps += [ap]
+        aps += [ap,h_ap]
         print('AP for {} = {:.4f}'.format(cls, ap))
+        print('AP for head = {:.4f}'.format(h_ap))
         with open(os.path.join(output_dir, cls + '_pr.pkl'), 'wb') as f:
             pickle.dump({'rec': rec, 'prec': prec, 'ap': ap}, f)
     print('Mean AP = {:.4f}'.format(np.mean(aps)))
@@ -182,7 +209,7 @@ def do_python_eval(output_dir='output', use_07=True):
     print('Results:')
     for ap in aps:
         print('{:.3f}'.format(ap))
-    print('{:.3f}'.format(np.mean(aps)))
+    #print('{:.3f}'.format(np.mean(aps)))
     print('~~~~~~~~')
     print('')
     print('--------------------------------------------------------------')
@@ -229,8 +256,7 @@ def voc_eval(detpath,
              annopath,
              imagesetfile,
              classname,
-             cachedir,
-             ovthresh=0.5,
+             ovthresh=0.3,
              use_07_metric=True):
     """rec, prec, ap = voc_eval(detpath,
                            annopath,
@@ -255,38 +281,19 @@ cachedir: Directory for caching the annotations
 # assumes imagesetfile is a text file with each line an image name
 # cachedir caches the annotations in a pickle file
 # first load gt
-    if not os.path.isdir(cachedir):
-        os.mkdir(cachedir)
-    cachefile = os.path.join(cachedir, 'annots.pkl')
-    # read list of images
     with open(imagesetfile, 'r') as f:
         lines = f.readlines()
     imagenames = [x.strip() for x in lines]
-    if not os.path.isfile(cachefile):
-        # load annots
-        recs = {}
-        for i, imagename in enumerate(imagenames):
-            recs[imagename] = parse_rec(annopath % (imagename))
-            if i % 100 == 0:
-                print('Reading annotation for {:d}/{:d}'.format(
-                   i + 1, len(imagenames)))
-        # save
-        print('Saving cached annotations to {:s}'.format(cachefile))
-        with open(cachefile, 'wb') as f:
-            pickle.dump(recs, f)
-    else:
-        # load
-        with open(cachefile, 'rb') as f:
-            recs = pickle.load(f)
-
-    # extract gt objects for this class
+    # load annots
+    recs= parse_odgt(annopath)
+    
     class_recs = {}
     npos = 0
     for imagename in imagenames:
-        R = [obj for obj in recs[imagename] if obj['name'] == classname]
-        bbox = np.array([x['bbox'] for x in R])
-        difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
-        det = [False] * len(R)
+        bbox = np.array(recs[imagename]['bbox'])
+        #print('bbox in gt, shape:',bbox.shape)
+        difficult = np.array(recs[imagename]['difficults']).astype(np.bool)
+        det = [False] * bbox.shape[0]
         npos = npos + sum(~difficult)
         class_recs[imagename] = {'bbox': bbox,
                                  'difficult': difficult,
@@ -313,11 +320,15 @@ cachedir: Directory for caching the annotations
         nd = len(image_ids)
         tp = np.zeros(nd)
         fp = np.zeros(nd)
+        h_fp=np.zeros(nd)
+        h_tp=np.zeros(nd)
+
         for d in range(nd):
             R = class_recs[image_ids[d]]
             bb = BB[d, :].astype(float)
             ovmax = -np.inf
             BBGT = R['bbox'].astype(float)
+            #print(BBGT.shape,bb.shape)
             if BBGT.size > 0:
                 # compute overlaps
                 # intersection
@@ -328,6 +339,7 @@ cachedir: Directory for caching the annotations
                 iw = np.maximum(ixmax - ixmin, 0.)
                 ih = np.maximum(iymax - iymin, 0.)
                 inters = iw * ih
+                
                 uni = ((bb[2] - bb[0]) * (bb[3] - bb[1]) +
                        (BBGT[:, 2] - BBGT[:, 0]) *
                        (BBGT[:, 3] - BBGT[:, 1]) - inters)
@@ -335,35 +347,71 @@ cachedir: Directory for caching the annotations
                 ovmax = np.max(overlaps)
                 jmax = np.argmax(overlaps)
 
+                h_ixmin = np.maximum(BBGT[:, 4], bb[4])
+                h_iymin = np.maximum(BBGT[:, 5], bb[5])
+                h_ixmax = np.minimum(BBGT[:, 6], bb[6])
+                h_iymax = np.minimum(BBGT[:, 7], bb[7])
+                h_iw = np.maximum(h_ixmax - h_ixmin, 0.)
+                h_ih = np.maximum(h_iymax - h_iymin, 0.)
+                h_inters = h_iw * h_ih
+                
+                h_uni = ((bb[6] - bb[4]) * (bb[7] - bb[5]) +
+                       (BBGT[:, 6] - BBGT[:, 4]) *
+                       (BBGT[:, 7] - BBGT[:, 5]) - h_inters)
+                h_overlaps = h_inters / h_uni
+                h_ovmax = np.max(h_overlaps)
+                h_jmax = np.argmax(h_overlaps)
+
+
             if ovmax > ovthresh:
-                if not R['difficult'][jmax]:
-                    if not R['det'][jmax]:
-                        tp[d] = 1.
-                        R['det'][jmax] = 1
-                    else:
-                        fp[d] = 1.
+                if not R['det'][jmax]:
+                    tp[d] = 1.
+                    R['det'][jmax] = 1
+                else:
+                    fp[d] = 1.
             else:
                 fp[d] = 1.
+
+            if h_ovmax > ovthresh:
+                if not R['difficult'][h_jmax]:
+                    if not R['det'][h_jmax]:
+                        h_tp[d] = 1.
+                        R['det'][h_jmax] = 1
+                    else:
+                        h_fp[d] = 1.
+            else:
+                h_fp[d] = 1.
+
 
         # compute precision recall
         fp = np.cumsum(fp)
         tp = np.cumsum(tp)
-        rec = tp / float(npos)
+        h_fp = np.cumsum(h_fp)
+        h_tp = np.cumsum(h_tp)
+
+        rec = tp / float(nd)
+        h_rec = h_tp / float(npos)
         # avoid divide by zero in case the first detection matches a difficult
         # ground truth
+        print(fp,tp,h_fp,h_tp)
         prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
         ap = voc_ap(rec, prec, use_07_metric)
+        h_prec = h_tp / np.maximum(h_tp + h_fp, np.finfo(np.float64).eps)
+        h_ap = voc_ap(h_rec,h_prec,use_07_metric)
     else:
         rec = -1.
         prec = -1.
         ap = -1.
+        h_rec,h_prec,h_ap = -1.,-1.,-1.
 
-    return rec, prec, ap
+    return rec, prec, ap, h_rec, h_prec, h_ap
 
 
 def test_net(save_folder, net, cuda, dataset, transform, top_k,
+             annopath, imageset,
              im_size=300, thresh=0.05):
-    num_images = len(dataset)
+    #num_images = len(dataset)
+    num_images = dataset.size
     # all detections are collected into:
     #    all_boxes[cls][image] = N x 5 array of detections in
     #    (x1, y1, x2, y2, score)
@@ -372,7 +420,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
 
     # timers
     _t = {'im_detect': Timer(), 'misc': Timer()}
-    output_dir = get_output_dir('ssd300_120000', set_type)
+    output_dir = get_output_dir(save_folder+'/ssd300_CHm_out_temp', set_type)
     det_file = os.path.join(output_dir, 'detections.pkl')
 
     for i in range(num_images):
@@ -388,15 +436,16 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
         # skip j = 0, because it's the background class
         for j in range(1, detections.size(1)):
             dets = detections[0, j, :]
-            mask = dets[:, 0].gt(0.).expand(5, dets.size(0)).t()
-            dets = torch.masked_select(dets, mask).view(-1, 5)
+            mask = dets[:, 0].gt(0.).expand(9, dets.size(0)).t()
+            dets = torch.masked_select(dets, mask).view(-1, 9)
             if dets.dim() == 0:
                 continue
             boxes = dets[:, 1:]
-            boxes[:, 0] *= w
-            boxes[:, 2] *= w
-            boxes[:, 1] *= h
-            boxes[:, 3] *= h
+            for k in range(8):
+                if k%2==0:
+                    boxes[:,k] *= w
+                if k%2==1:
+                    boxes[:,k] *= h
             scores = dets[:, 0].cpu().numpy()
             cls_dets = np.hstack((boxes.cpu().numpy(),
                                   scores[:, np.newaxis])).astype(np.float32,
@@ -410,29 +459,30 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
         pickle.dump(all_boxes, f, pickle.HIGHEST_PROTOCOL)
 
     print('Evaluating detections')
-    evaluate_detections(all_boxes, output_dir, dataset)
+    evaluate_detections(all_boxes, output_dir, dataset,annopath, imageset)
 
 
-def evaluate_detections(box_list, output_dir, dataset):
-    write_voc_results_file(box_list, dataset)
-    do_python_eval(output_dir)
+def evaluate_detections(box_list, output_dir, dataset, annopath, imageset):
+    write_voc_results_file(box_list, imageset)
+    do_python_eval(output_dir,annopath,imageset)
 
 
 if __name__ == '__main__':
     # load net
     num_classes = len(labelmap) + 1                      # +1 for background
+    print(labelmap)
+    print('num_classes:',num_classes)
     net = build_ssd('test', 300, num_classes)            # initialize SSD
     net.load_state_dict(torch.load(args.trained_model))
     net.eval()
     print('Finished loading model!')
     # load data
-    dataset = VOCDetection(args.voc_root, [('2007', set_type)],
-                           BaseTransform(300, dataset_mean),
-                           VOCAnnotationTransform())
+    dataset = CrowdHumanDetection(args.CH_root, 
+                        args.annopath,
+                        BaseTransform(300, dataset_mean))
     if args.cuda:
         net = net.cuda()
         cudnn.benchmark = True
     # evaluation
     test_net(args.save_folder, net, args.cuda, dataset,
-             BaseTransform(net.size, dataset_mean), args.top_k, 300,
-             thresh=args.confidence_threshold)
+             BaseTransform(net.size, dataset_mean), args.top_k,  args.annopath, args.imageset, 300, thresh=args.confidence_threshold)

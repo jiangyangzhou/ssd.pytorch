@@ -15,7 +15,7 @@ import torch.utils.data as data
 import numpy as np
 import argparse
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 
 def str2bool(v):
@@ -33,9 +33,9 @@ parser.add_argument('--basenet', default='vgg16_reducedfc.pth',
                     help='Pretrained base model')
 parser.add_argument('--batch_size', default=16, type=int,
                     help='Batch size for training')
-parser.add_argument('--resume', default='weights/ssd300_mAP_77.43_v2.pth', type=str,
+parser.add_argument('--resume', default='weights/CrowdHuman.pth',
                     help='Checkpoint state_dict file to resume training from')
-parser.add_argument('--start_iter', default=0, type=int,
+parser.add_argument('--start_iter', default=120000, type=int,
                     help='Resume training at this iter')
 parser.add_argument('--num_workers', default=1, type=int,
                     help='Number of workers used in dataloading')
@@ -210,10 +210,17 @@ def train():
 
         if iteration != 0 and iteration % 5000 == 0:
             print('Saving state, iter:', iteration)
-            torch.save(ssd_net.state_dict(), 'weights/ssd300_crowdHuman_' +
-                       repr(iteration) + '.pth')
-    torch.save(ssd_net.state_dict(),
-               args.save_folder + '' + args.dataset + '.pth')
+            torch.save({'model_state_dict':ssd_net.state_dict(),
+                       'optimizer_state_dict': optimizer.state_dict(), 
+                       'iter':iteration,
+                       'loss':loss},
+                      'weights/ssd300_crowdHuman_' + repr(iteration) + '.pth',
+                        )
+    torch.save({'model_state_dict':ssd_net.state_dict(),
+                 'optimizer_state_dict': optimizer.state_dict(),
+                 'iter':iteration,
+                 'loss':loss},
+                 args.save_folder + '' + args.dataset + '1'+'.pth')
 
 
 def adjust_learning_rate(optimizer, gamma, step):
